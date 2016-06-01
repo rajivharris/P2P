@@ -1,0 +1,377 @@
+```json
+{"exec-mode":"default","platform":"MacNet45","uti":"com.xamarin.workbook","packages":[]}
+```
+
+# Concurrency in C#
+
+---
+
+**Concurrency:**
+Doing more than one thing at a time.
+Concurrency can be achieved thru : Threading, Parallel and Asynchrony
+
+**Multithreading:**
+A form of concurrency that uses multiple threads of execution.
+Using more than one thread. Threads usually refer to OS threads and these are really
+expensive and you shouldn’t be using them directly in your code.
+
+**Parallel Processing**
+Dividing a unit of work among multiple threads that run in parallel.
+That is, dividing the work into multi-threads to maximize the use of multi processors
+where these threads can run on different cores independently.
+
+**Asynchronous**
+Is an aspect of concurrency where Futures or Callbacks could be used to avoid creating heavy OS threads.A promise represents an operation that will complete in the future, and this doesn’t mean that a thread will be created for this operation.
+
+References
+
+1. [Clearing up the terminology](https://codelexems.com/2014/11/03/clearing-up-the-terminology/)
+
+2. [Concurrency vs Multi-threading vs Asynchronous programming explained](https://codewala.net/2015/07/29/concurrency-vs-multi-threading-vs-asynchronous-programming-explained/)
+
+## Threading in C#
+
+![](http://www.albahari.com/threading/NewThread.png)
+
+A simple function that writes "X" 5 times
+
+```csharp
+void WriteX()
+{
+    for(int i=0; i<5;i++) Console.Write("X");
+}
+WriteX();
+```
+
+A simple function that writes "Y" 5 times
+
+```csharp
+void WriteY()
+{
+    for(int i=0; i<5;i++) Console.Write("Y");
+}
+WriteY();
+```
+
+using multithreading to execute both the functions concurrently
+
+```csharp
+var t = new Thread(WriteX); //kick off a new thread.
+t.Start(); //running WriteX()
+
+//simultaneously, do something in the main thread.
+WriteY();
+```
+
+Passing data to a thread
+
+using lambda
+
+```csharp
+void PrintLambda(string msg)
+{
+    Console.WriteLine(msg);
+}
+
+var t = new Thread(() => PrintLambda("Hello from thread using lambda expression"));
+t.Start();
+```
+
+using Thread's start method
+
+```csharp
+void Print(object message)
+{
+	string msg = (string) message;
+    Console.WriteLine(msg);
+}
+
+var t = new Thread(Print);
+t.Start("Hello from thread using thread start");
+```
+
+Reference
+
+1. [Threading in C#, by Joe Albahari](http://www.albahari.com/threading/)
+
+2. [MSDN](https://msdn.microsoft.com/en-us/library/aa645740(v=vs.71).aspx)
+
+## *Parallel Programming*
+
+Multithreading APIs new to Framework 4.0 for leveraging multicore processors:
+
+1. Parallel LINQ or PLINQ
+
+2. Parallel class
+
+3. Task parallelism constructs
+
+4. Concurrent collections
+
+5. SpinLock and SpinWait
+
+These APIs are collectively known (loosely) as **PFX** (Parallel Framework Extensions).
+
+In recent times, CPU clock speeds have stagnated and manufacturers have shifted their focus to increasing core counts. This is problematic for us as programmers because our standard single-threaded code will not automatically run faster as a result of those extra cores.
+
+Parallel programming typically involves
+
+* Partition it into small chunks.
+
+* Execute those chunks in parallel via multithreading.
+
+* Collate the results as they become available, in a thread-safe and performant manner.
+
+> Programming to leverage multicores or multiple processors is called parallel programming.
+> This is a subset of the broader concept of multithreading.
+
+There are two strategies for partitioning work among threads:
+
+1. Data parallelism
+
+2. Task parallelism
+
+When a set of tasks must be performed on many data values, we can parallelize by having each thread perform the (same) set of tasks on a subset of values. This is called ***data parallelism*** because we are partitioning the data between threads.
+
+In contrast, with ***task parallelism*** we partition the tasks; in other words, we have each thread perform a different task.
+
+**PFX Components**
+
+![](http://www.albahari.com/threading/ParallelProgramming.png)
+
+## Task Parallelism
+
+Task parallelism is the lowest-level approach to parallelization with PFX. The classes for working at this level are defined in the System.Threading.Tasks namespace and comprise the following:
+
+* **Task**                                   :  For managing a unit for work
+
+* **Task<TResult>**                :  For managing a unit for work with a return value
+
+* **TaskFactory**                      :  For creating tasks
+
+* **TaskFactory<TResult>** :  For creating tasks and continuations with the same return type
+
+* **TaskScheduler**                 :  For managing the scheduling of tasks
+
+* **TaskCompletionSource** :  For manually controlling a task’s workflow
+
+The key difference between **TPL** and **previous APIs** is that **TPL** attempts to unify the
+asynchronous programming model. It provides a single type called a **Task** to represent all asynchronous operations.In addition to Tasks, **TPL** introduces standardized cancellation and reporting of progress—traditionally something developers rolled for themselves.
+
+Essentially, a task is a lightweight object for managing a parallelizable unit of work. A task avoids the overhead of starting a dedicated thread by using the CLR’s thread pool: this is the same thread pool used by **ThreadPool.QueueUserWorkItem**, tweaked in CLR 4.0 to work more efficiently with Tasks (and more efficiently in general).
+
+Tasks can be used whenever you want to execute something in parallel. However, they’re tuned for leveraging multicores: in fact, the Parallel class and PLINQ are internally built on the task parallelism constructs.
+
+Tasks do more than just provide an easy and efficient way into the thread pool. They also provide some powerful features for managing units of work, including the ability to:
+
+* Tune a task’s scheduling
+
+* Establish a parent/child relationship when one task is started from another
+
+* Implement cooperative cancellation
+
+* Wait on a set of tasks — without a signaling construct
+
+* Attach “continuation” task(s)
+
+* Schedule a continuation based on multiple antecedent tasks
+
+* Propagate exceptions to parents, continuations, and task consumers
+
+Tasks also implement local work queues, an optimization that allows you to efficiently create many quickly executing child tasks without incurring the contention overhead that would otherwise arise with a single work queue.
+
+#### *Creating and Starting Tasks*
+
+```csharp
+Task.Factory.StartNew (() => Console.WriteLine ("Hello from a task!"));
+```
+
+If it is your lucky day, “Hello World” will appear on your screen. But run the code a few times and you may well get different results; for most people absolutely nothing will be displayed. We hope you have figured out the reason: compute-based tasks run on background threads and, as explained in Chapter 2, background threads do not keep the process alive. By the time the task is about to run, the main thread has already terminated and, hence, the process will
+terminate as well. This is an important point to remember, as when it comes to your own code, running tasks will simply be aborted if no foreground threads are executing.
+
+So how can you bring some determinism to this chaotic example? What you need to do is to keep the main thread alive until the asynchronous work has completed. A simple Console.ReadLine(); would suffice, but a more elegant way would be to block the main thread, wait for the task to complete, and then exit.
+
+```csharp
+Task.Factory.StartNew (() => Console.WriteLine ("Hello from a task!")).Wait();
+```
+
+Task.Factory.StartNew creates and starts a task in one step. You can decouple these operations by first instantiating a Task object, and then calling Start:
+
+```csharp
+var task = new Task (() => Console.Write ("Hello"));
+task.Start();
+task.Wait();
+```
+
+In .NET 4.5 it is made even simpler: if you just require a task configured using some predefined defaults, you can use
+
+```csharp
+Task.Run(() => Console.WriteLine ("Hello from a task!")).Wait();
+```
+
+The generic version, Task<TResult> (a subclass of Task), lets you get data back from a task upon completion:
+
+```csharp
+Task<string> task = Task.Factory.StartNew<string> (() =>    // Begin task
+{
+  using (var wc = new System.Net.WebClient())
+    return wc.DownloadString ("https://www.resna.org/system/files/dummy.txt");
+});
+
+// We can do other work in parallel...
+
+string result = task.Result;  // Wait for task to finish and fetch result.
+```
+
+#### *Specifying a state object*
+
+```csharp
+void taskState()
+{
+  var task = Task.Factory.StartNew (state => Greet ("Hello"), "Greeting");
+  Console.WriteLine (task.AsyncState);   // Greeting
+  task.Wait();
+}
+
+void Greet (string message) { Console.Write (message); }
+
+taskState();
+```
+
+> Visual Studio displays each task’s AsyncState in the Parallel Tasks window, so having a meaningful name here can ease debugging considerably.
+
+#### *TaskCreationOptions*
+
+You can tune a task’s execution by specifying a **TaskCreationOptions** enum when calling **StartNew** (or instantiating a Task).
+
+**TaskCreationOptions** is a flags enum with the following (combinable) values:
+
+* LongRunning
+
+* PreferFairness
+
+* AttachedToParent
+
+**LongRunning** suggests to the scheduler to dedicate a thread to the task. This is beneficial for long-running tasks because they might otherwise “hog” the queue, and force short-running tasks to wait an unreasonable amount of time before being scheduled. LongRunning is also good for blocking tasks.
+
+**PreferFairness** tells the scheduler to try to ensure that tasks are scheduled in the order they were started. It may ordinarily do otherwise, because it internally optimizes the scheduling of tasks using local work-stealing queues. This optimization is of practical benefit with very small (fine-grained) tasks.
+
+**AttachedToParent** is for creating child tasks.
+
+#### *Child tasks*
+
+When one task starts another, you can optionally establish a parent-child relationship by specifying **TaskCreationOptions.AttachedToParent**:
+
+```csharp
+Task parent = Task.Factory.StartNew (() =>
+{
+  Console.WriteLine ("I am a parent");
+
+  Task.Factory.StartNew (() =>        // Detached task
+  {
+    Console.WriteLine ("I am detached");
+  });
+
+  Task.Factory.StartNew (() =>        // Child task
+  {
+    Console.WriteLine ("I am a child");
+  }, TaskCreationOptions.AttachedToParent);
+});
+```
+
+A child task is special in that when you wait for the parent task to complete, it waits for any children as well. This can be particularly useful when a child task is a continuation.
+
+#### *Waiting on Tasks*
+
+You can explicitly wait for a task to complete in two ways:
+
+* Calling its **Wait** method (optionally with a timeout)
+
+* Accessing its **Result** property (in the case of Task<TResult>)
+
+You can also wait on multiple tasks at once — via the static methods **Task.WaitAll** (waits for all the specified tasks to finish) and **Task.WaitAny** (waits for just one task to finish).
+
+**WaitAll** is similar to waiting out each task in turn, but is more efficient in that it requires (at most) just one context switch. Also, if one or more of the tasks throw an unhandled exception, **WaitAll** still waits out every task — and then rethrows a single **AggregateException** that accumulates the exceptions from each faulted task.
+
+#### *Exception-Handling Tasks*
+
+When you wait for a task to complete (by calling its Wait method or accessing its Result property), any unhandled exceptions are conveniently rethrown to the caller, wrapped in an AggregateException object. This usually avoids the need to write code within task blocks to handle unexpected exceptions; instead we can do this:
+
+```csharp
+int x = 0;
+Task<int> calc = Task.Factory.StartNew (() => 7 / x);
+try
+{
+  Console.WriteLine (calc.Result);
+}
+catch (AggregateException aex)
+{
+  Console.Write (aex.InnerException.Message);  // Attempted to divide by 0
+}
+```
+
+#### *Canceling Tasks*
+
+You can optionally pass in a cancellation token when starting a task. This lets you cancel tasks via the cooperative cancellation pattern described previously:
+
+```csharp
+var cancelSource = new CancellationTokenSource();
+CancellationToken token = cancelSource.Token;
+
+Task task = Task.Factory.StartNew (() =>
+{
+  // Do some stuff...
+  token.ThrowIfCancellationRequested();  // Check for cancellation request
+  // Do some stuff...
+}, token);
+//some more code
+cancelSource.Cancel();
+```
+
+To detect a canceled task, catch an AggregateException and check the inner exception as follows:
+
+```csharp
+try
+{
+  task.Wait();
+}
+catch (AggregateException ex)
+{
+  if (ex.InnerException is OperationCanceledException)
+    Console.Write ("Task canceled!");
+}
+```
+
+#### *Continuations*
+
+Sometimes it’s useful to start a task right after another one completes (or fails). The ContinueWith method on the Task class does exactly this:
+
+```csharp
+Task task1 = Task.Factory.StartNew (() => Console.Write ("antecedant.."));
+task1.Wait();
+Task task2 = task1.ContinueWith (ant => Console.Write ("..continuation"));
+task2.Wait();
+```
+
+As soon as **task1** (the antecedent) finishes, fails, or is canceled, **task2** (the continuation) automatically starts. (If **task1** had completed before the second line of code ran, **task2** would be scheduled to execute right away.) The **ant** argument passed to the continuation’s lambda expression is a reference to the antecedent task.
+
+Our example demonstrated the simplest kind of continuation, and is functionally similar to the following:
+
+```csharp
+Task task = Task.Factory.StartNew (() =>
+{
+  Console.Write ("antecedent..");
+  Console.Write ("..continuation");
+});
+task.Wait();
+```
+
+![](http://www.albahari.com/threading/Continuations.png)
+
+## PLINQ
+
+PLINQ automatically parallelizes local LINQ queries. PLINQ has the advantage of being easy to use in that it offloads the burden of both work partitioning and result collation to the Framework.
+
+To use PLINQ, simply call **AsParallel()** on the input sequence and then continue the LINQ query as usual.
+
+![](http://www.albahari.com/threading/PLINQExecution.png)
