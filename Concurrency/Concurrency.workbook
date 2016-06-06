@@ -31,6 +31,16 @@ References
 
 ## Threading in C#
 
+**How Threading Works**
+
+Multithreading is managed internally by a thread scheduler, a function the CLR typically delegates to the operating system. A thread scheduler ensures all active threads are allocated appropriate execution time, and that threads that are waiting or blocked (for instance, on an exclusive lock or on user input)  do not consume CPU time.
+
+On a single-processor computer, a thread scheduler performs time-slicing — rapidly switching execution between each of the active threads. Under Windows, a time-slice is typically in the tens-of-milliseconds region — much larger than the CPU overhead in actually switching context between one thread and another (which is typically in the few-microseconds region).
+
+On a multi-processor computer, multithreading is implemented with a mixture of time-slicing and genuine concurrency, where different threads run code simultaneously on different CPUs. It’s almost certain there will still be some time-slicing, because of the operating system’s need to service its own threads — as well as those of other applications.
+
+A thread is said to be preempted when its execution is interrupted due to an external factor such as time-slicing. In most situations, a thread has no control over when and where it’s preempted.
+
 ![](http://www.albahari.com/threading/NewThread.png)
 
 A simple function that writes "X" 5 times
@@ -57,7 +67,7 @@ using multithreading to execute both the functions concurrently
 
 ```csharp
 var t = new Thread(WriteX); //kick off a new thread.
-t.Start(); //running WriteX()
+t.Start(); //running WriteY()
 
 //simultaneously, do something in the main thread.
 WriteY();
@@ -89,6 +99,232 @@ void Print(object message)
 var t = new Thread(Print);
 t.Start("Hello from thread using thread start");
 ```
+
+**Join and Sleep**
+
+You can wait for another thread to end by calling its **Join** method.
+
+```csharp
+t.Join();
+Console.WriteLine ("Thread t has ended!");
+```
+
+**Thread.Sleep** pauses the current thread for a specified period:
+
+```csharp
+//Thread.Sleep (TimeSpan.FromHours (1));  // sleep for 1 hour
+//Thread.Sleep (500);                     // sleep for 500 milliseconds
+```
+
+### Synchronization
+
+*synchronization*: coordinating the actions of threads for a predictable outcome. Synchronization is particularly important when threads access the same data.
+
+Synchronization constructs can be divided into four categories:
+
+**Simple blocking methods**
+
+These wait for another thread to finish or for a period of time to elapse. **Sleep**, **Join**, and **Task.Wait** are simple blocking methods.
+
+**Locking constructs**
+
+These limit the number of threads that can perform some activity or execute a section of code at a time. Exclusive locking constructs are most common — these allow just one thread in at a time, and allow competing threads to access common data without interfering with each other. The standard exclusive locking constructs are **lock** (Monitor.Enter/Monitor.Exit), **Mutex**, and **SpinLock**. The nonexclusive locking constructs are **Semaphore**, **SemaphoreSlim**, and the **reader/writer** locks.
+
+**Signaling constructs**
+
+These allow a thread to pause until receiving a notification from another, avoiding the need for inefficient polling. There are two commonly used signaling devices: **event wait handles** and Monitor’s **Wait/Pulse** methods. Framework 4.0 introduces the \*\*CountdownEvent \*\*and \*\*Barrier \*\*classes.
+
+**Nonblocking synchronization constructs**
+
+These protect access to a common field by calling upon processor primitives. The CLR and C# provide the following nonblocking constructs: **Thread.MemoryBarrier**, **Thread.VolatileRead**, **Thread.VolatileWrite**, the **volatile** keyword, and the **Interlocked** class.
+
+### **Blocking**
+
+A thread is deemed blocked when its execution is paused for some reason, such as when Sleeping or waiting for another to end via \*\*Join \*\*or **EndInvoke**. A blocked thread immediately yields its processor time slice, and from then on consumes no processor time until its blocking condition is satisfied. You can test for a thread being blocked via its **ThreadState** property:
+
+```csharp
+bool blocked = (someThread.ThreadState & ThreadState.WaitSleepJoin) != 0;
+```
+
+When a thread blocks or unblocks, the operating system performs a context switch. This incurs an overhead of a few microseconds.
+
+Unblocking happens in one of four ways (the computer's power button doesn't count!):
+
+* by the blocking condition being satisfied
+
+* by the operation timing out (if a timeout is specified)
+
+* by being interrupted via **Thread.Interrupt**
+
+* by being aborted via **Thread.Abort**
+
+**Locking**
+
+Exclusive locking is used to ensure that only one thread can enter particular sections of code at a time. The two main exclusive locking constructs are lock and Mutex.
+
+```csharp
+class ThreadUnsafe
+{
+  static int val1 = 1, val2 = 1;
+
+  static void Go()
+  {
+    if (val2 != 0) Console.WriteLine (val1 / val2);
+    val2 = 0;
+  }
+}
+```
+
+This class is not thread-safe: if Go was called by two threads simultaneously, it would be possible to get a division-by-zero error, because val2 could be set to zero in one thread right as the other thread was in between executing the if statement and Console.WriteLine.
+
+```csharp
+class ThreadSafe
+{
+  static readonly object _locker = new object();
+  static int _val1, _val2;
+
+  static void Go()
+  {
+    lock (_locker)
+    {
+      if (_val2 != 0) Console.WriteLine (_val1 / _val2);
+      _val2 = 0;
+    }
+  }
+}
+```
+
+**Semaphore**
+A semaphore with a capacity of one is similar to a Mutex or lock, except that the semaphore has no “owner” — it’s thread-agnostic. Any thread can call Release on a Semaphore, whereas with Mutex and lock, only the thread that obtained the lock can release it.
+
+Semaphores can be useful in limiting concurrency — preventing too many threads from executing a particular piece of code at once. In the following example, five threads try to enter a nightclub that allows only three threads in at once:
+
+```csharp
+public class TheClub      // No door lists!
+{
+  static SemaphoreSlim _sem = new SemaphoreSlim (3);    // Capacity of 3
+
+  public static void Main()
+  {
+    for (int i = 1; i <= 5; i++) new Thread (Enter).Start (i);
+  }
+
+  static void Enter (object id)
+  {
+    Console.WriteLine (id + " wants to enter");
+    _sem.Wait();
+    Console.WriteLine (id + " is in!");           // Only three threads
+    Thread.Sleep (1000 * (int) id);               // can be here at
+    Console.WriteLine (id + " is leaving");       // a time.
+    _sem.Release();
+  }
+}
+```
+
+### Signaling with Event Wait handles
+
+Event wait handles are used for signaling. Signaling is when one thread waits until it receives notification from another.
+
+**AutoResetEvent**
+An AutoResetEvent is like a ticket turnstile: inserting a ticket lets exactly one person through. The “auto” in the class’s name refers to the fact that an open turnstile automatically closes or “resets” after someone steps through. A thread waits, or blocks, at the turnstile by calling WaitOne (wait at this “one” turnstile until it opens), and a ticket is inserted by calling the Set method. If a number of threads call WaitOne, a queue builds up behind the turnstile. (As with locks, the fairness of the queue can sometimes be violated due to nuances in the operating system). A ticket can come from any thread; in other words, any (unblocked) thread with access to the AutoResetEvent object can call Set on it to release one blocked thread.
+
+You can create an AutoResetEvent in two ways. The first is via its constructor:
+
+```csharp
+var auto = new AutoResetEvent (false);
+```
+
+(Passing true into the constructor is equivalent to immediately calling Set upon it.) The second way to create an AutoResetEvent is as follows:
+
+```csharp
+var auto = new EventWaitHandle (false, EventResetMode.AutoReset);
+```
+
+In the following example, a thread is started whose job is simply to wait until signaled by another thread:
+
+```csharp
+class BasicWaitHandle
+{
+  static EventWaitHandle _waitHandle = new AutoResetEvent (false);
+
+  static void Main()
+  {
+    new Thread (Waiter).Start();
+    Thread.Sleep (1000);                  // Pause for a second...
+    _waitHandle.Set();                    // Wake up the Waiter.
+  }
+
+  static void Waiter()
+  {
+    Console.WriteLine ("Waiting...");
+    _waitHandle.WaitOne();                // Wait for notification
+    Console.WriteLine ("Notified");
+  }
+}
+```
+
+![](http://www.albahari.com/threading/EventWaitHandle.png)
+
+**Two-way signaling**
+Let’s say we want the main thread to signal a worker thread three times in a row. If the main thread simply calls Set on a wait handle several times in rapid succession, the second or third signal may get lost, since the worker may take time to process each signal.
+
+The solution is for the main thread to wait until the worker’s ready before signaling it. This can be done with another AutoResetEvent, as follows:
+
+```csharp
+class TwoWaySignaling
+{
+  static EventWaitHandle _ready = new AutoResetEvent (false);
+  static EventWaitHandle _go = new AutoResetEvent (false);
+  static readonly object _locker = new object();
+  static string _message;
+
+  static void Main()
+  {
+    new Thread (Work).Start();
+
+    _ready.WaitOne();                  // First wait until worker is ready
+    lock (_locker) _message = "ooo";
+    _go.Set();                         // Tell worker to go
+
+    _ready.WaitOne();
+    lock (_locker) _message = "ahhh";  // Give the worker another message
+    _go.Set();
+    _ready.WaitOne();
+    lock (_locker) _message = null;    // Signal the worker to exit
+    _go.Set();
+  }
+
+  static void Work()
+  {
+    while (true)
+    {
+      _ready.Set();                          // Indicate that we're ready
+      _go.WaitOne();                         // Wait to be kicked off...
+      lock (_locker)
+      {
+        if (_message == null) return;        // Gracefully exit
+        Console.WriteLine (_message);
+      }
+    }
+  }
+}
+```
+
+![](http://www.albahari.com/threading/TwoWaySignaling.png)
+
+**ManualResetEvent**
+A ManualResetEvent functions like an ordinary gate. Calling Set opens the gate, allowing any number of threads calling WaitOne to be let through. Calling Reset closes the gate. Threads that call WaitOne on a closed gate will block; when the gate is next opened, they will be released all at once. Apart from these differences, a ManualResetEvent functions like an AutoResetEvent.
+
+As with AutoResetEvent, you can construct a ManualResetEvent in two ways:
+
+```csharp
+var manual1 = new ManualResetEvent (false);
+var manual2 = new EventWaitHandle (false, EventResetMode.ManualReset);
+```
+
+**Closure**
+
+A closure in C# takes the form of an in-line delegate/ anonymous method. A closure is attached to its parent method meaning that variables defined in parent's method body can be referenced from within the anonymous method.
 
 Reference
 
@@ -149,7 +385,7 @@ Task parallelism is the lowest-level approach to parallelization with PFX. The c
 
 * **TaskFactory**                      :  For creating tasks
 
-* **TaskFactory<TResult>** :  For creating tasks and continuations with the same return type
+* \*\*TaskFactory<TResult>  \*\* :  For creating tasks and continuations with the same return type
 
 * **TaskScheduler**                 :  For managing the scheduling of tasks
 
@@ -180,7 +416,7 @@ Tasks do more than just provide an easy and efficient way into the thread pool. 
 
 Tasks also implement local work queues, an optimization that allows you to efficiently create many quickly executing child tasks without incurring the contention overhead that would otherwise arise with a single work queue.
 
-#### *Creating and Starting Tasks*
+*Creating and Starting Tasks*
 
 ```csharp
 Task.Factory.StartNew (() => Console.WriteLine ("Hello from a task!"));
@@ -223,7 +459,7 @@ Task<string> task = Task.Factory.StartNew<string> (() =>    // Begin task
 string result = task.Result;  // Wait for task to finish and fetch result.
 ```
 
-#### *Specifying a state object*
+*Specifying a state object*
 
 ```csharp
 void taskState()
@@ -240,7 +476,7 @@ taskState();
 
 > Visual Studio displays each task’s AsyncState in the Parallel Tasks window, so having a meaningful name here can ease debugging considerably.
 
-#### *TaskCreationOptions*
+*TaskCreationOptions*
 
 You can tune a task’s execution by specifying a **TaskCreationOptions** enum when calling **StartNew** (or instantiating a Task).
 
@@ -258,7 +494,7 @@ You can tune a task’s execution by specifying a **TaskCreationOptions** enum w
 
 **AttachedToParent** is for creating child tasks.
 
-#### *Child tasks*
+*Child tasks*
 
 When one task starts another, you can optionally establish a parent-child relationship by specifying **TaskCreationOptions.AttachedToParent**:
 
@@ -281,8 +517,7 @@ Task parent = Task.Factory.StartNew (() =>
 
 A child task is special in that when you wait for the parent task to complete, it waits for any children as well. This can be particularly useful when a child task is a continuation.
 
-#### *Waiting on Tasks*
-
+*Waiting on Tasks*
 You can explicitly wait for a task to complete in two ways:
 
 * Calling its **Wait** method (optionally with a timeout)
@@ -293,8 +528,7 @@ You can also wait on multiple tasks at once — via the static methods **Task.Wa
 
 **WaitAll** is similar to waiting out each task in turn, but is more efficient in that it requires (at most) just one context switch. Also, if one or more of the tasks throw an unhandled exception, **WaitAll** still waits out every task — and then rethrows a single **AggregateException** that accumulates the exceptions from each faulted task.
 
-#### *Exception-Handling Tasks*
-
+*Exception-Handling Tasks*
 When you wait for a task to complete (by calling its Wait method or accessing its Result property), any unhandled exceptions are conveniently rethrown to the caller, wrapped in an AggregateException object. This usually avoids the need to write code within task blocks to handle unexpected exceptions; instead we can do this:
 
 ```csharp
@@ -310,8 +544,7 @@ catch (AggregateException aex)
 }
 ```
 
-#### *Canceling Tasks*
-
+*Canceling Tasks*
 You can optionally pass in a cancellation token when starting a task. This lets you cancel tasks via the cooperative cancellation pattern described previously:
 
 ```csharp
@@ -342,8 +575,7 @@ catch (AggregateException ex)
 }
 ```
 
-#### *Continuations*
-
+*Continuations*
 Sometimes it’s useful to start a task right after another one completes (or fails). The ContinueWith method on the Task class does exactly this:
 
 ```csharp
